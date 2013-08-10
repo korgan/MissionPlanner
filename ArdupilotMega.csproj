@@ -367,7 +367,6 @@
     <Compile Include="Utilities\BigInteger.cs" />
     <Compile Include="Utilities\Firmware.cs" />
     <Compile Include="Utilities\StringRedirectWriter.cs" />
-  
     <Compile Include="Wizard\IWizard.cs" />
     <Compile Include="Wizard\Wizard.cs">
       <SubType>Form</SubType>
@@ -390,7 +389,6 @@
     </Compile>
     <Compile Include="Utilities\httpserver.cs" />
     <Compile Include="Utilities\S3Uploader.cs" />
-  
     <None Include="Driver\amd64\ftd2xx.lib">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
@@ -586,7 +584,6 @@
     <EmbeddedResource Include="ScriptConsole.resx">
       <DependentUpon>ScriptConsole.cs</DependentUpon>
     </EmbeddedResource>
-  
     <EmbeddedResource Include="Wizard\Wizard.resx">
       <DependentUpon>Wizard.cs</DependentUpon>
     </EmbeddedResource>
@@ -2038,7 +2035,8 @@
   <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PostBuildEvent>"$(TargetDir)version.exe" "$(TargetPath)" &gt; "$(TargetDir)version.txt"</PostBuildEvent>
+    <PostBuildEvent>
+    </PostBuildEvent>
   </PropertyGroup>
   <PropertyGroup>
     <PreBuildEvent>

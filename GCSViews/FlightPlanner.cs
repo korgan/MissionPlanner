@@ -29,6 +29,9 @@ using ProjNet.CoordinateSystems;
 using ProjNet.Converters;
 using MissionPlanner.Controls;
 
+using System.Xml.XPath; //!< Additional include to parse wms server capabilites.
+
+
 namespace ArdupilotMega.GCSViews
 {
     public partial class FlightPlanner : MyUserControl, IDeactivate, IActivate
@@ -1978,8 +1981,21 @@ namespace ArdupilotMega.GCSViews
                 string url = "";
                 if (MainV2.config["WMSserver"] != null)
                     url = MainV2.config["WMSserver"].ToString();
-                if (System.Windows.Forms.DialogResult.Cancel == InputBox.Show("WMS Server", "Enter the WMS server URL", ref url))
+                if (System.Windows.Forms.DialogResult.Cancel == InputBox.Show("WMS Server", "Enter the WMS server URL without trailing ?", ref url))
                     return;
+
+                //<-- Begin WMS Server compatibility enhancement
+                //get the capabilites xml
+
+                string szCapabilityRequest = url + "?version=1.1.0&Request=GetCapabilities";
+
+                XmlDocument xCapabilityResponse = MakeRequest(szCapabilityRequest);
+                ProcessWmsCapabilitesRequest(xCapabilityResponse);
+
+                // End WMS Server compatibility enhancement -->
+                //CustomMessageBox.Show("WMS URL input: " + url);
+
+
                 MainV2.config["WMSserver"] = url;
                 MainMap.Manager.CustomWMSURL = url;
             }
@@ -4425,5 +4441,124 @@ namespace ArdupilotMega.GCSViews
 
             CustomMessageBox.Show("Area: " + area + " m2");
         }
+
+
+        /**
+         * This function requests an XML document from a webserver.
+         * @param requestUrl The request url as a string including. Example: http://129.206.228.72/cached/hillshade?Request=GetCapabilities
+         * @return An XML document containing the response.
+         */
+        private XmlDocument MakeRequest(string requestUrl)
+        {
+            try
+            {
+                HttpWebRequest request = WebRequest.Create(requestUrl) as HttpWebRequest;
+                HttpWebResponse response = request.GetResponse() as HttpWebResponse;
+
+                XmlDocument xmlDoc = new XmlDocument();
+                xmlDoc.Load(response.GetResponseStream());
+                return (xmlDoc);
+
+            }
+            catch (Exception e)
+            {
+
+                CustomMessageBox.Show("Failed to make WMS Server request: " + e.Message);
+                return null;
+            }
+        }
+
+        /**
+         * This function parses a WMS server capabilites response.
+         */
+        private void ProcessWmsCapabilitesRequest(XmlDocument xCapabilitesResponse)
+        {
+
+            //Create namespace manager
+            XmlNamespaceManager nsmgr = new XmlNamespaceManager(xCapabilitesResponse.NameTable);
+
+            //check if the response is a valid xml document - if not, the server might still be able to serve us but all the checks below would fail. example: http://tiles.kartat.kapsi.fi/peruskartta
+            //best sign is that there is no node WMT_MS_Capabilities
+            if (xCapabilitesResponse.SelectNodes("//WMT_MS_Capabilities",nsmgr).Count == 0)
+                return;
+
+            //first, we have to make sure that the server is able to send us png imagery
+            bool bPngCapable = false;
+            XmlNodeList getMapElements = xCapabilitesResponse.SelectNodes("//GetMap", nsmgr);
+            if (getMapElements.Count != 1)
+                CustomMessageBox.Show("Invalid WMS Server response: Invalid number of GetMap elements.");
+            else
+            {
+                XmlNode getMapNode = getMapElements.Item(0);
+                //search through all format nodes for image/png
+                foreach (XmlNode formatNode in getMapNode.SelectNodes("//Format", nsmgr))
+                {
+                    if (formatNode.InnerText.Contains("image/png"))
+                    {
+                        bPngCapable = true;
+                        break;
+                    }
+                }
+            }
+
+            if(!bPngCapable)
+            {
+                CustomMessageBox.Show("Invalid WMS Server response: Server unable to return PNG images.");
+                return;
+            }
+
+            //now search through all layer -> srs nodes for EPSG:4326 compatibility
+            bool bEpsgCapable = false;
+            XmlNodeList srsELements = xCapabilitesResponse.SelectNodes("//SRS", nsmgr);
+            foreach (XmlNode srsNode in srsELements)
+            {
+                if (srsNode.InnerText.Contains("EPSG:4326"))
+                {
+                    bEpsgCapable = true;
+                    break;
+                }
+            }
+
+            if (!bEpsgCapable)
+            {
+                CustomMessageBox.Show("Invalid WMS Server response: Server unable to return EPSG:4326 / WGS84 compatible images.");
+                return;
+            }
+
+            //the server is capable of serving our requests - now check if there is a layer to be selected
+            //format: layer -> layer -> name
+            string szLayerSelection = "";
+            int iSelect = 0;
+            List<string> szListLayerName = new List<string>();
+            XmlNodeList layerELements = xCapabilitesResponse.SelectNodes("//Layer/Layer/Name", nsmgr);
+            foreach (XmlNode nameNode in layerELements)
+            {
+                szLayerSelection += string.Format("{0}: " + nameNode.InnerText + ", ", iSelect); //mixing control and formatting is not optimal...
+                szListLayerName.Add(nameNode.InnerText);
+                iSelect++;
+            }
+
+            //only select layer if there is one
+            if (szListLayerName.Count != 0)
+            {
+                //now let the user select a layer
+                string szUserSelection = "";
+                if (System.Windows.Forms.DialogResult.Cancel == InputBox.Show("WMS Server", "The following layers were detected: " + szLayerSelection + "please choose one by typing the associated number.", ref szUserSelection))
+                    return;
+                int iUserSelection = 0;
+                try
+                {
+                    iUserSelection = Convert.ToInt32(szUserSelection);
+                }
+                catch
+                {
+                    iUserSelection = 0; //ignore all errors and default to first layer
+                }
+
+
+                MainMap.Manager.szWmsLayer = szListLayerName[iUserSelection];
+            }
+        }
+
     }
 }
